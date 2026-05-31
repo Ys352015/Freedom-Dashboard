@@ -23,15 +23,20 @@ export default function FreedomPointsDashboard() {
   const [authInput, setAuthInput] = useState('');
   const [pendingJob, setPendingJob] = useState(null);
 
-  // FIX #1: Safely get active child
-  const activeChild = selectedChild !== null 
-    ? selectedChild 
-    : (children.length > 0 ? children[0] : null);
+  // Active child (always use the object from `children` array when available)
+  const activeChild = (() => {
+    if (!children || children.length === 0) return null;
+    if (selectedChild && selectedChild.id) {
+      return children.find((c) => c.id === selectedChild.id) || children[0];
+    }
+    return children[0];
+  })();
 
-  // FIX #2: Get the actual child from array for auth validation
+  // Accept either an id or an object with `id`
   const getChildFromArray = (childToFind) => {
     if (!childToFind) return null;
-    return children.find(c => c.name === childToFind.name);
+    const id = typeof childToFind === 'string' ? childToFind : childToFind.id;
+    return children.find((c) => c.id === id) || null;
   };
 
   // ---------------- ADD CHILD ----------------
@@ -41,7 +46,6 @@ export default function FreedomPointsDashboard() {
       return;
     }
 
-    // FIX #3: Validate starter points
     const points = Number(starterPoints);
     if (isNaN(points) || points < 0) {
       alert('Please enter a valid number for starter points');
@@ -49,6 +53,7 @@ export default function FreedomPointsDashboard() {
     }
 
     const newChild = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       name: childName,
       age: childAge || 'N/A',
       password: childPassword || '1234',
@@ -58,7 +63,10 @@ export default function FreedomPointsDashboard() {
       streak: 0,
     };
 
-    setChildren((prev) => [...prev, newChild]);
+    setChildren((prev) => {
+      const next = [...prev, newChild];
+      return next;
+    });
     setSelectedChild(newChild);
 
     setChildName('');
@@ -77,7 +85,6 @@ export default function FreedomPointsDashboard() {
       return;
     }
 
-    // FIX #4: Get fresh child from array for password verification
     const childFromArray = getChildFromArray(activeChild);
     if (!childFromArray) {
       setShowAuth(false);
@@ -88,7 +95,7 @@ export default function FreedomPointsDashboard() {
 
     const ok = authInput === childFromArray.password;
 
-    if (ok && pendingJob) {
+    if (ok && typeof pendingJob === 'function') {
       pendingJob();
     } else if (!ok) {
       alert('Incorrect password');
@@ -99,14 +106,19 @@ export default function FreedomPointsDashboard() {
     setPendingJob(null);
   };
 
-  // Handle Enter key in auth input
-  const handleAuthKeyPress = (e) => {
+  // Use onKeyDown instead of deprecated onKeyPress
+  const handleAuthKeyDown = (e) => {
     if (e.key === 'Enter') {
       handleAuth();
     }
+    if (e.key === 'Escape') {
+      setShowAuth(false);
+      setAuthInput('');
+      setPendingJob(null);
+    }
   };
 
-  // FIX #5: Check if can add task/reward
+  // ---------------- VALIDATION ----------------
   const canAddTask = () => {
     if (!activeChild) {
       alert('Please add a child first');
@@ -116,7 +128,7 @@ export default function FreedomPointsDashboard() {
       alert('Please enter a task name');
       return false;
     }
-    if (!taskPoints || isNaN(Number(taskPoints))) {
+    if (taskPoints === '' || isNaN(Number(taskPoints))) {
       alert('Please enter valid points');
       return false;
     }
@@ -132,76 +144,70 @@ export default function FreedomPointsDashboard() {
       alert('Please enter a reward name');
       return false;
     }
-    if (!rewardCost || isNaN(Number(rewardCost))) {
+    if (rewardCost === '' || isNaN(Number(rewardCost))) {
       alert('Please enter valid cost');
       return false;
     }
     return true;
   };
 
-  // ---------------- FIXED TASK COMPLETE (POINTS FIXED) ----------------
-  const completeTask = (index) => {
+  // ---------------- TASK COMPLETE ----------------
+  const completeTask = (taskId) => {
     if (!activeChild) return;
 
-    const task = tasks[index];
+    const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
 
-    setTasks((prev) => prev.filter((_, i) => i !== index));
+    setTasks((prev) => prev.filter((t) => t.id !== taskId));
 
-    setChildren((prev) =>
-      prev.map((c) =>
-        c.name === activeChild.name
+    setChildren((prev) => {
+      const next = prev.map((c) =>
+        c.id === activeChild.id
           ? {
               ...c,
               points: (Number(c.points) || 0) + (Number(task.points) || 0),
             }
           : c
-      )
-    );
-
-    // FIX #6: Update activeChild reference
-    const updatedChild = children.find(c => c.name === activeChild.name);
-    if (updatedChild) {
-      setSelectedChild({
-        ...updatedChild,
-        points: (Number(updatedChild.points) || 0) + (Number(task.points) || 0),
-      });
-    }
+      );
+      const updatedChild = next.find((c) => c.id === activeChild.id);
+      if (updatedChild) {
+        setSelectedChild(updatedChild);
+      }
+      return next;
+    });
   };
 
-  // ---------------- FIXED REWARD UNLOCK ----------------
-  const unlockReward = (index) => {
+  // ---------------- REWARD UNLOCK ----------------
+  const unlockReward = (rewardId) => {
     if (!activeChild) return;
 
-    const reward = rewards[index];
+    const reward = rewards.find((r) => r.id === rewardId);
     if (!reward) return;
 
-    if ((Number(activeChild.points) || 0) < reward.cost) {
-      alert(`Not enough points! Need ${reward.cost}, have ${activeChild.points}`);
+    const currentPoints = Number(activeChild.points) || 0;
+    const cost = Number(reward.cost) || 0;
+    if (currentPoints < cost) {
+      alert(`Not enough points! Need ${cost}, have ${currentPoints}`);
       return;
     }
 
-    setRewards((prev) => prev.filter((_, i) => i !== index));
+    setRewards((prev) => prev.filter((r) => r.id !== rewardId));
 
-    setChildren((prev) =>
-      prev.map((c) =>
-        c.name === activeChild.name
+    setChildren((prev) => {
+      const next = prev.map((c) =>
+        c.id === activeChild.id
           ? {
               ...c,
-              points: (Number(c.points) || 0) - (Number(reward.cost) || 0),
+              points: (Number(c.points) || 0) - cost,
             }
           : c
-      )
-    );
-
-    // FIX #6: Update activeChild reference
-    const updatedChild = children.find(c => c.name === activeChild.name);
-    if (updatedChild) {
-      setSelectedChild({
-        ...updatedChild,
-        points: (Number(updatedChild.points) || 0) - (Number(reward.cost) || 0),
-      });
-    }
+      );
+      const updatedChild = next.find((c) => c.id === activeChild.id);
+      if (updatedChild) {
+        setSelectedChild(updatedChild);
+      }
+      return next;
+    });
   };
 
   return (
@@ -209,15 +215,25 @@ export default function FreedomPointsDashboard() {
 
       {/* AUTH POPUP */}
       {showAuth && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-[#0b1020] p-6 rounded-2xl w-80">
+        <div
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
+          onClick={() => {
+            setShowAuth(false);
+            setAuthInput('');
+            setPendingJob(null);
+          }}
+        >
+          <div
+            className="bg-[#0b1020] p-6 rounded-2xl w-80"
+            onClick={(e) => e.stopPropagation()}
+          >
             <h2 className="text-xl font-bold mb-4">Enter Password</h2>
 
             <input
               type="password"
               value={authInput}
               onChange={(e) => setAuthInput(e.target.value)}
-              onKeyPress={handleAuthKeyPress}
+              onKeyDown={handleAuthKeyDown}
               autoFocus
               className="w-full p-3 rounded-xl bg-black/40 mb-4"
             />
@@ -227,6 +243,16 @@ export default function FreedomPointsDashboard() {
               className="w-full bg-cyan-400 text-black rounded-xl py-2 font-bold hover:bg-cyan-300"
             >
               Unlock
+            </button>
+            <button
+              onClick={() => {
+                setShowAuth(false);
+                setAuthInput('');
+                setPendingJob(null);
+              }}
+              className="w-full mt-2 bg-white/10 text-white rounded-xl py-2 font-bold hover:bg-white/20"
+            >
+              Cancel
             </button>
           </div>
         </div>
@@ -272,12 +298,12 @@ export default function FreedomPointsDashboard() {
         <div className="mb-4 p-4 bg-white/5 rounded-xl">
           <h3 className="text-lg font-bold mb-2">Select Child:</h3>
           <div className="flex flex-wrap gap-2">
-            {children.map((child, idx) => (
+            {children.map((child) => (
               <button
-                key={idx}
+                key={child.id}
                 onClick={() => setSelectedChild(child)}
                 className={`px-4 py-2 rounded-xl font-bold ${
-                  activeChild?.name === child.name
+                  activeChild?.id === child.id
                     ? 'bg-cyan-400 text-black'
                     : 'bg-white/10 text-white hover:bg-white/20'
                 }`}
@@ -307,13 +333,16 @@ export default function FreedomPointsDashboard() {
           onClick={() => {
             if (!canAddTask()) return;
 
+            const payload = {
+              id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              title: taskName,
+              points: Number(taskPoints) || 0,
+            };
+
             setPendingJob(() => () => {
               setTasks((prev) => [
                 ...prev,
-                {
-                  title: taskName,
-                  points: Number(taskPoints) || 0,
-                },
+                payload,
               ]);
               setTaskName('');
               setTaskPoints('');
@@ -330,10 +359,10 @@ export default function FreedomPointsDashboard() {
       {tasks.length === 0 ? (
         <p className="text-white/50 mb-4">No tasks yet</p>
       ) : (
-        tasks.map((t, i) => (
+        tasks.map((t) => (
           <div
-            key={i}
-            onClick={() => completeTask(i)}
+            key={t.id}
+            onClick={() => completeTask(t.id)}
             className="p-3 bg-gradient-to-r from-cyan-500/20 to-blue-500/20 rounded mb-2 cursor-pointer hover:bg-cyan-500/40 transition"
           >
             {t.title} <span className="text-cyan-400 font-bold">+{t.points}</span>
@@ -352,13 +381,16 @@ export default function FreedomPointsDashboard() {
           onClick={() => {
             if (!canAddReward()) return;
 
+            const payload = {
+              id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              title: rewardName,
+              cost: Number(rewardCost) || 0,
+            };
+
             setPendingJob(() => () => {
               setRewards((prev) => [
                 ...prev,
-                {
-                  title: rewardName,
-                  cost: Number(rewardCost) || 0,
-                },
+                payload,
               ]);
               setRewardName('');
               setRewardCost('');
@@ -375,10 +407,10 @@ export default function FreedomPointsDashboard() {
       {rewards.length === 0 ? (
         <p className="text-white/50 mb-4">No rewards yet</p>
       ) : (
-        rewards.map((r, i) => (
+        rewards.map((r) => (
           <div
-            key={i}
-            onClick={() => unlockReward(i)}
+            key={r.id}
+            onClick={() => unlockReward(r.id)}
             className="p-3 bg-gradient-to-r from-purple-500/20 to-pink-500/20 rounded mb-2 cursor-pointer hover:bg-purple-500/40 transition"
           >
             {r.title} <span className="text-purple-400 font-bold">({r.cost} FP)</span>
